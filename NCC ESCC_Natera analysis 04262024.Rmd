@@ -1,0 +1,916 @@
+---
+title: "NCC ESCC_Natera analysis 04262024"
+output: html_notebook
+---
+library(swimplot)
+library(grid)
+library(gtable)
+library(readr) 
+library(mosaic)
+library(dplyr) 
+library(survival) 
+library(survminer) 
+library(ggplot2)
+library(scales)
+library(coxphf)
+library(ggthemes)
+library(tidyverse)
+library(gtsummary)
+library(flextable)
+library(parameters)
+library(car)
+library(ComplexHeatmap)
+library(tidyverse)
+library(readxl)
+library(survival)
+library(janitor)
+library(DT)
+
+#ctDNA positivity by stage and window
+```{r}
+#Number of Pts at Baseline - percentage positivity by stage
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.prenac!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+total_base <- sum(!is.na(circ_data$ctDNA.prenac))
+print(total_base)
+circ_data$ctDNA.prenac <- as.factor(circ_data$ctDNA.prenac)
+cont_table_base <- table(circ_data$cStage, circ_data$ctDNA.prenac)
+print(cont_table_base)
+
+#Number of Pts post NAT - percentage positivity by stage
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.postnac!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+total_postnat <- sum(!is.na(circ_data$ctDNA.postnac))
+print(total_postnat)
+circ_data$ctDNA.postnac <- as.factor(circ_data$ctDNA.postnac)
+cont_table_postnat <- table(circ_data$cStage, circ_data$ctDNA.postnac)
+print(cont_table_postnat)
+
+#Number of Pts post-surgery - percentage positivity by stage
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.4w!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+total_mrd <- sum(!is.na(circ_data$ctDNA.4w))
+print(total_mrd)
+circ_data$ctDNA.4w <- as.factor(circ_data$ctDNA.4w)
+cont_table_mrd <- table(circ_data$cStage, circ_data$ctDNA.4w)
+print(cont_table_mrd)
+```
+
+#Summary Table
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data_subset <- circ_data %>%
+  select(
+    Gender,
+    Age,
+    PS,
+    cStage,
+    TNM.Detailed,
+    Neo.Regiment,
+    ypStage,
+    ypTNM.Detailed,
+    TRG,
+    pCR,
+    Adj.Regimen,
+    RFS.Event,
+    OS.Event,
+    RFS.months,
+    OS.months) %>%
+  mutate(
+    Gender = factor(Gender),
+    Age = as.numeric(Age),
+    PS = factor(PS),
+    cStage = factor(cStage),
+    TNM.Detailed = factor(TNM.Detailed),
+    Neo.Regiment = factor(Neo.Regiment),
+    ypStage = factor(ypStage),
+    ypTNM.Detailed = factor(ypTNM.Detailed),
+    TRG = factor(TRG),
+    pCR = factor(pCR),
+    Adj.Regimen = factor(Adj.Regimen),
+    RFS.Event = factor(RFS.Event, levels = c("FALSE", "TRUE"), labels = c("No Recurrence", "Recurrence")),
+    OS.Event = factor(OS.Event, levels = c("FALSE", "TRUE"), labels = c("Alive", "Deceased")),
+    RFS.months = as.numeric(RFS.months),
+    OS.months = as.numeric(OS.months))
+table1 <- circ_data_subset %>%
+  tbl_summary(
+    statistic = list(
+      all_continuous() ~ "{median} ({min} - {max})",
+      all_categorical() ~ "{n} ({p}%)")) %>%
+  bold_labels()
+table1
+fit1 <- as_flex_table(
+  table1,
+  include = everything(),
+  return_calls = FALSE,
+  strip_md_bold = TRUE)
+fit1
+save_as_docx(fit1, path= "~/Downloads/table1.docx")
+```
+
+
+
+#Heatmap for the clinical factors
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_datadf <- as.data.frame(circ_data)
+circ_data <- circ_data %>% arrange(cStage)
+circ_datadf <- as.data.frame(circ_data)
+
+ha <- HeatmapAnnotation(
+  cStage = circ_data$cStage,
+  Gender = circ_data$Gender,
+  Neo.Regiment = circ_data$Neo.Regiment,
+  TRG = circ_data$TRG,
+  pCR = circ_data$pCR,
+  ypStage = circ_data$ypStage,
+  Adj.Regimen = circ_data$Adj.Regimen,
+  ctDNA.prenac = circ_data$ctDNA.prenac,
+  ctDNA.postnac = circ_data$ctDNA.postnac,
+  ctDNA.4w = circ_data$ctDNA.4w,
+  ctDNA.12w = circ_data$ctDNA.12w,
+  ctDNA.24w = circ_data$ctDNA.24w,
+  ctDNA.36w = circ_data$ctDNA.36w,
+  ctDNA.48w = circ_data$ctDNA.48w,
+  ctDNA.postMRD = circ_data$ctDNA.postMRD,
+  RFS.Event = circ_data$RFS.Event,
+  OS.Event = circ_data$OS.Event,
+  
+    col = list(cStage = c("I" = "seagreen1", "II" = "khaki", "III" = "orange", "IV" = "darkmagenta"),
+    Gender = c("FEMALE" = "goldenrod" , "MALE" = "blue4"),
+    Neo.Regiment = c("FOLFOX6" = "coral", "FP" ="darkgreen", "DCF" ="brown"),
+    TRG = c("1" = "yellow3", "2" ="darkgreen", "3" = "brown2"),
+    pCR = c("TRUE" = "lightblue", "FALSE" ="orange"),
+    ypStage = c("0" = "khaki","I" = "seagreen2", "II" = "cornflowerblue","III" = "orange","IV" ="darkmagenta"),
+    Adj.Regimen = c("Nivolumab" = "darkmagenta"),
+    ctDNA.prenac = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.postnac = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.4w = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.12w = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.24w = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.36w = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.48w = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    ctDNA.postMRD = c("POSITIVE" = "red3", "NEGATIVE" ="blue"),
+    RFS.Event = c("TRUE" = "red3", "FALSE" ="blue"),
+    OS.Event = c("TRUE" = "black", "FALSE" ="grey")
+)
+)
+ht <- Heatmap(matrix(nrow = 0, ncol = length(circ_data$cStage)),show_row_names = FALSE,cluster_rows = F,cluster_columns = FALSE, top_annotation = ha)
+pdf("heatmap.pdf",width = 7, height = 7)
+draw(ht, annotation_legend_side = "bottom")
+dev.off()
+```
+
+#Overview plot
+```{r}
+setwd("~/Downloads")
+clinstage<- read.csv("NCC_ESCC_OP.csv")
+clinstage_df<- as.data.frame(clinstage)
+
+#Display the swimmer plot with the label box
+oplot<-swimmer_plot(df=clinstage_df,
+                    id='PatientName',
+                    end='fu.diff.months',
+                    fill='gray',
+                    width=.01,)
+oplot <- oplot + theme(panel.border = element_blank())
+oplot <- oplot + scale_y_continuous(breaks = seq(-12, 108, by = 6))
+oplot <- oplot + labs(x ="Patients" , y="Months from Surgery")
+oplot
+
+##plot events
+oplot_ev1 <- oplot + swimmer_points(df_points=clinstage_df,
+                                    id='PatientName',
+                                    time='date.diff.months',
+                                    name_shape ='Event_type',
+                                    name_col = 'Event',
+                                    size=3.5,fill='black',
+                                    #col='darkgreen'
+)
+oplot_ev1
+
+#Shape customization to Event_type
+
+oplot_ev1.1 <- oplot_ev1 + ggplot2::scale_shape_manual(name="Event_type",values=c(1,16,6,18,18,4),breaks=c('ctDNA_neg','ctDNA_pos', 'Imaging','Surgery','Biopsy', 'Death'))
+
+oplot_ev1.1
+
+#plot treatment
+
+oplot_ev2 <- oplot_ev1.1 + swimmer_lines(df_lines=clinstage_df,
+                                         id='PatientName',
+                                         start='Tx_start.months',
+                                         end='Tx_end.months',
+                                         name_col='Tx_type',
+                                         size=3.5,
+                                         name_alpha = 1.0)
+oplot_ev2 <- oplot_ev2 + guides(linetype = guide_legend(override.aes = list(size = 5, color = "black")))
+oplot_ev2  
+
+
+#colour customization
+#orange=NAC chemo,orangered=NAC ChemoIO,  purple=ACT, Black=Death, Red=PD, ctDNA negative=white, ctDNA positive=black, cystectomy=blue, TURBT=gray, ACT Chemo=purple, ACT IO=lightblue 
+oplot_ev2.2 <- oplot_ev2 + ggplot2::scale_color_manual(name="Event",values=c("lightblue", "gray", "black", "black", "orange", "green", "red", "blue"))
+oplot_ev2.2
+```
+
+#RFS by ctDNA post-NAT
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.postnac!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.postnac, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.postnac, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="RFS - ctDNA post-NAC", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+summary(KM_curve, times= c(12, 24))
+circ_data$ctDNA.postnac <- factor(circ_data$ctDNA.postnac, levels=c("NEGATIVE","POSITIVE"))
+cox_fit <- coxph(surv_object ~ ctDNA.postnac, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+
+#RFS by ctDNA Clearance post-NAC - 3 Groups
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.Clearance!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.Clearance, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.Clearance, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("red","blue","green"), title="RFS - ctDNA Clearance post-NAC", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("No Clearance", "Sustained", "Transient"), legend.title="")
+summary(KM_curve, times= c(12, 18, 24))
+circ_data$ctDNA.Clearance <- factor(circ_data$ctDNA.Clearance, levels=c("Sustained","Transient", "No Clearance"))
+cox_fit <- coxph(surv_object ~ ctDNA.Clearance, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+```
+
+
+#RFS by ctDNA at 4 weeks
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.4w!="",]
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.4w, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.4w, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="RFS - ctDNA at week 4", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+circ_data$ctDNA.4w <- factor(circ_data$ctDNA.4w, levels=c("NEGATIVE","POSITIVE"))
+summary(KM_curve, times= c(0, 24))
+cox_fit <- coxph(surv_object ~ ctDNA.4w, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+
+#RFS by ctDNA MRD Window (2-16 weeks post-op)
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.MRD!="",]
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.MRD, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.MRD, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="RFS - ctDNA MRD Window", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+circ_data$ctDNA.MRD <- factor(circ_data$ctDNA.MRD, levels=c("NEGATIVE","POSITIVE"))
+summary(KM_curve, times= c(0, 24))
+cox_fit <- coxph(surv_object ~ ctDNA.MRD, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+
+#RFS by ctDNA post MRD
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.postMRD!="",]
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.postMRD, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.postMRD, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="RFS - ctDNA Surveillance (post-)MRD", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+circ_data$ctDNA.postMRD <- factor(circ_data$ctDNA.postMRD, levels=c("NEGATIVE","POSITIVE"))
+summary(KM_curve, times= c(0, 24))
+cox_fit <- coxph(surv_object ~ ctDNA.postMRD, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+
+#Time-dependent analysis for post-MRD (>16 weeks) time points
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+dt <- read_xlsx("NCC ESCC Time Dependent Data_postMRD.xlsx") |>
+  clean_names() |>
+  mutate(across(.cols = c(window_start_date,dfs_date,
+                          surveillance_1_date:surveillance_12_date), 
+                .fns = ~ as_date(as.Date(.x, format = "%Y-%m-%d"))))
+
+dt_biomarker <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date,
+         surveillance_1_status:surveillance_12_date) |>
+  filter(ct_dna_surveillance_available) |>
+  pivot_longer(cols = surveillance_1_status:surveillance_12_date,
+               names_to = c("visit_number", ".value"),
+               names_pattern = "surveillance_(.)_(.*)") |>
+  mutate(biomarker_time = day(days(date - window_start_date))) |>
+  select(pts_id, biomarker_time, biomarker_status = status) |>
+  filter(!is.na(biomarker_time))
+
+glimpse(dt_biomarker)
+
+dt_survival <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date:dfs_date, dfs_event) |>  # Added dfs_event here
+  filter(ct_dna_surveillance_available) |>
+  mutate(dfs_time = (dfs_date - window_start_date),
+         dfs_time = day(days(dfs_time)),
+         dfs_event = as.numeric(dfs_event)) |>
+  select(pts_id, dfs_time, dfs_event)
+
+glimpse(dt_survival)
+
+aux <- dt_survival %>% 
+  filter(dfs_time <= 0)
+
+tab <- left_join(aux, dt) |>
+  select(pts_id, window_start_date, dfs_time, dfs_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = dfs_date:surveillance_12_date, 
+                .fns = ~ as_date(.x))) |>
+  select(pts_id, window_start_date, dfs_date, dfs_time)
+
+datatable(tab, filter = "top")
+
+dt_survival <- dt_survival |>
+  filter(dfs_time > 0)
+
+aux <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date, dfs_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = surveillance_1_date:surveillance_12_date, 
+                .fns = ~ .x - window_start_date)) |>
+  mutate(across(.cols = surveillance_1_date:surveillance_12_date, 
+                .fns = ~ .x < 0)) |>
+  rowwise() |>
+  mutate(sum_neg = 
+           sum(c_across(surveillance_1_date:surveillance_12_date),
+               na.rm = TRUE))  |>
+  select(pts_id, sum_neg)
+
+tab <- left_join(aux, dt) |>
+  filter(sum_neg > 0) |>
+  select(pts_id, sum_neg, window_start_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = window_start_date:surveillance_12_date, 
+                .fns = ~ as_date(.x))) 
+
+datatable(tab, filter = "top")
+
+aux <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date, dfs_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = dfs_date:surveillance_12_date, 
+                .fns = ~ .x - window_start_date)) |>
+  mutate(across(.cols = surveillance_2_date:surveillance_12_date,
+                .fns = ~ dfs_date < .x)) |>
+  rowwise() |>
+  mutate(n_biomarker_after_event = sum(c_across(surveillance_2_date:
+                                                  surveillance_12_date), 
+                                       na.rm = TRUE)) |>
+  mutate(across(.cols = surveillance_1_date:surveillance_12_date,
+                .fns = ~ !is.na(.x))) |>
+  mutate(total_biomarker = sum(c_across(surveillance_2_date:
+                                          surveillance_12_date), 
+                               na.rm = TRUE)) |>
+  select(pts_id, n_biomarker_after_event, total_biomarker)
+
+temp <- aux |> 
+  select(-pts_id) |>
+  group_by(n_biomarker_after_event, total_biomarker) |>
+  summarize(freq = n())
+
+
+tab <- left_join(aux, dt) |>
+  select(pts_id, n_biomarker_after_event, total_biomarker, 
+         dfs_date,
+         surveillance_2_date:surveillance_12_date) |>
+  mutate(across(.cols = dfs_date:surveillance_12_date, 
+                .fns = ~ as_date(.x))) |>
+  filter(n_biomarker_after_event > 0)
+datatable(tab, filter = "top")
+
+aux <- tmerge(data1 = dt_survival, 
+              data2 = dt_survival,
+              id = pts_id, 
+              dfs_event = event(dfs_time, dfs_event))
+dt_final <- tmerge(data1 = aux, 
+                   data2 = dt_biomarker,
+                   id = pts_id, 
+                   biomarker_status = 
+                     tdc(biomarker_time, biomarker_status))
+
+datatable(dt_final, filter = "top")
+
+# Syntax if there is not time-dependent covariate
+# fit <- coxph(Surv(dfs_time, dfs_event) ~ biomarker_status,
+#              data = dt_final)
+# summary(fit)
+
+fit <- coxph(Surv(tstart, tstop, dfs_event) ~ biomarker_status,
+             data = dt_final)
+summary(fit)
+```
+
+
+#RFS by ctDNA anytime post-surgery
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.anytime!="",]
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.anytime, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.anytime, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","red"), title="RFS - ctDNA anytime post-surgery", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("ctDNA Negative", "ctDNA Positive"), legend.title="")
+circ_data$ctDNA.anytime <- factor(circ_data$ctDNA.anytime, levels=c("NEGATIVE","POSITIVE"))
+summary(KM_curve, times= c(0, 24))
+cox_fit <- coxph(surv_object ~ ctDNA.anytime, data=circ_data) 
+ggforest(cox_fit,data = circ_data) 
+summary(cox_fit)
+cox_fit_summary <- summary(cox_fit)
+
+#Extract values for HR, 95% CI, and p-value
+HR <- cox_fit_summary$coefficients[2]
+lower_CI <- cox_fit_summary$conf.int[3]
+upper_CI <- cox_fit_summary$conf.int[4]
+p_value <- cox_fit_summary$coefficients[5]
+label_text <- paste0("HR = ", round(HR, 2), " (", round(lower_CI, 2), "-", round(upper_CI, 2), "); p = ", round(p_value, 3))
+print(label_text)
+```
+
+
+#Time-dependent analysis for post-surgery time points
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+dt <- read_xlsx("NCC ESCC Time Dependent Data_anytime postop.xlsx") |>
+  clean_names() |>
+  mutate(across(.cols = c(window_start_date,dfs_date,
+                          surveillance_1_date:surveillance_12_date), 
+                .fns = ~ as_date(as.Date(.x, format = "%Y-%m-%d"))))
+
+dt_biomarker <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date,
+         surveillance_1_status:surveillance_12_date) |>
+  filter(ct_dna_surveillance_available) |>
+  pivot_longer(cols = surveillance_1_status:surveillance_12_date,
+               names_to = c("visit_number", ".value"),
+               names_pattern = "surveillance_(.)_(.*)") |>
+  mutate(biomarker_time = day(days(date - window_start_date))) |>
+  select(pts_id, biomarker_time, biomarker_status = status) |>
+  filter(!is.na(biomarker_time))
+
+glimpse(dt_biomarker)
+
+dt_survival <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date:dfs_date, dfs_event) |>  # Added dfs_event here
+  filter(ct_dna_surveillance_available) |>
+  mutate(dfs_time = (dfs_date - window_start_date),
+         dfs_time = day(days(dfs_time)),
+         dfs_event = as.numeric(dfs_event)) |>
+  select(pts_id, dfs_time, dfs_event)
+
+glimpse(dt_survival)
+
+aux <- dt_survival %>% 
+  filter(dfs_time <= 0)
+
+tab <- left_join(aux, dt) |>
+  select(pts_id, window_start_date, dfs_time, dfs_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = dfs_date:surveillance_12_date, 
+                .fns = ~ as_date(.x))) |>
+  select(pts_id, window_start_date, dfs_date, dfs_time)
+
+datatable(tab, filter = "top")
+
+dt_survival <- dt_survival |>
+  filter(dfs_time > 0)
+
+aux <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date, dfs_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = surveillance_1_date:surveillance_12_date, 
+                .fns = ~ .x - window_start_date)) |>
+  mutate(across(.cols = surveillance_1_date:surveillance_12_date, 
+                .fns = ~ .x < 0)) |>
+  rowwise() |>
+  mutate(sum_neg = 
+           sum(c_across(surveillance_1_date:surveillance_12_date),
+               na.rm = TRUE))  |>
+  select(pts_id, sum_neg)
+
+tab <- left_join(aux, dt) |>
+  filter(sum_neg > 0) |>
+  select(pts_id, sum_neg, window_start_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = window_start_date:surveillance_12_date, 
+                .fns = ~ as_date(.x))) 
+
+datatable(tab, filter = "top")
+
+aux <- dt |>
+  select(pts_id, ct_dna_surveillance_available,
+         window_start_date, dfs_date,
+         surveillance_1_date:surveillance_12_date) |>
+  mutate(across(.cols = dfs_date:surveillance_12_date, 
+                .fns = ~ .x - window_start_date)) |>
+  mutate(across(.cols = surveillance_2_date:surveillance_12_date,
+                .fns = ~ dfs_date < .x)) |>
+  rowwise() |>
+  mutate(n_biomarker_after_event = sum(c_across(surveillance_2_date:
+                                                  surveillance_12_date), 
+                                       na.rm = TRUE)) |>
+  mutate(across(.cols = surveillance_1_date:surveillance_12_date,
+                .fns = ~ !is.na(.x))) |>
+  mutate(total_biomarker = sum(c_across(surveillance_2_date:
+                                          surveillance_12_date), 
+                               na.rm = TRUE)) |>
+  select(pts_id, n_biomarker_after_event, total_biomarker)
+
+temp <- aux |> 
+  select(-pts_id) |>
+  group_by(n_biomarker_after_event, total_biomarker) |>
+  summarize(freq = n())
+
+
+tab <- left_join(aux, dt) |>
+  select(pts_id, n_biomarker_after_event, total_biomarker, 
+         dfs_date,
+         surveillance_2_date:surveillance_12_date) |>
+  mutate(across(.cols = dfs_date:surveillance_12_date, 
+                .fns = ~ as_date(.x))) |>
+  filter(n_biomarker_after_event > 0)
+datatable(tab, filter = "top")
+
+aux <- tmerge(data1 = dt_survival, 
+              data2 = dt_survival,
+              id = pts_id, 
+              dfs_event = event(dfs_time, dfs_event))
+dt_final <- tmerge(data1 = aux, 
+                   data2 = dt_biomarker,
+                   id = pts_id, 
+                   biomarker_status = 
+                     tdc(biomarker_time, biomarker_status))
+
+datatable(dt_final, filter = "top")
+
+# Syntax if there is not time-dependent covariate
+# fit <- coxph(Surv(dfs_time, dfs_event) ~ biomarker_status,
+#              data = dt_final)
+# summary(fit)
+
+fit <- coxph(Surv(tstart, tstop, dfs_event) ~ biomarker_status,
+             data = dt_final)
+summary(fit)
+```
+
+
+#RFS by ctDNA Dynamics post-NAC to Week 4 - 3 groups
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+
+circ_data$ctDNA.Dynamics <- NA #first we create the variable for the ctDNA & NAC combination, and we assign values
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.postnac == "NEGATIVE" & ctDNA.4w == "NEGATIVE" ~ "1",
+    ctDNA.postnac == "POSITIVE" & ctDNA.4w == "NEGATIVE" ~ "2",
+    ctDNA.postnac == "POSITIVE" & ctDNA.4w == "POSITIVE" ~ "3"
+  ))
+
+circ_data <- circ_data[!is.na(circ_data$ctDNA.Dynamics),]
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.Dynamics, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.Dynamics, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","green","red"), title="RFS - ctDNA Dynamics post-NAC - Week 4", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("Persistently Negative","Converted Negative", "Persistently Positive"), legend.title="")
+summary(KM_curve, times= c(0, 24))
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2","3"), labels=c("Persistently Negative","Converted Negative", "Persistently Positive"))
+cox_fit <- coxphf(surv_object ~ ctDNA.Dynamics, data=circ_data)
+summary(cox_fit)
+```
+
+
+#RFS by ctDNA Dynamics post-NAC to Week 4 - 4 groups
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+
+circ_data$ctDNA.Dynamics <- NA #first we create the variable for the ctDNA & NAC combination, and we assign values
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.postnac == "NEGATIVE" & ctDNA.4w == "NEGATIVE" ~ "1",
+    ctDNA.postnac == "POSITIVE" & ctDNA.4w == "NEGATIVE" ~ "2",
+    ctDNA.postnac == "NEGATIVE" & ctDNA.4w == "POSITIVE" ~ "3",
+    ctDNA.postnac == "POSITIVE" & ctDNA.4w == "POSITIVE" ~ "4"
+  ))
+
+circ_data <- circ_data[!is.na(circ_data$ctDNA.Dynamics),]
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.Dynamics, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.Dynamics, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","green","purple","red"), title="RFS - ctDNA Dynamics post-NAC - Week 4", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("Persistently Negative","Converted Negative", "Converted Positive","Persistently Positive"), legend.title="")
+summary(KM_curve, times= c(0, 24))
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2","3","4"), labels=c("Persistently Negative","Converted Negative","Converted Positive","Persistently Positive"))
+cox_fit <- coxphf(surv_object ~ ctDNA.Dynamics, data=circ_data)
+summary(cox_fit)
+```
+
+
+#RFS by ctDNA Dynamics post-NAC to MRD - 4 groups
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+
+circ_data$ctDNA.Dynamics <- NA #first we create the variable for the ctDNA & NAC combination, and we assign values
+circ_data <- circ_data %>%
+  mutate(ctDNA.Dynamics = case_when(
+    ctDNA.postnac == "NEGATIVE" & ctDNA.MRD == "NEGATIVE" ~ "1",
+    ctDNA.postnac == "POSITIVE" & ctDNA.MRD == "NEGATIVE" ~ "2",
+    ctDNA.postnac == "NEGATIVE" & ctDNA.MRD == "POSITIVE" ~ "3",
+    ctDNA.postnac == "POSITIVE" & ctDNA.MRD == "POSITIVE" ~ "4"
+  ))
+
+circ_data <- circ_data[!is.na(circ_data$ctDNA.Dynamics),]
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.Dynamics, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.Dynamics, data = circ_data,conf.int=0.95,conf.type="log-log") 
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, break.time.by=6, palette=c("blue","green","purple","red"), title="RFS - ctDNA Dynamics post-NAC - MRD Window", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", legend.labs=c("Persistently Negative","Converted Negative", "Converted Positive","Persistently Positive"), legend.title="")
+summary(KM_curve, times= c(0, 24))
+circ_data$ctDNA.Dynamics <- factor(circ_data$ctDNA.Dynamics, levels=c("1","2","3","4"), labels=c("Persistently Negative","Converted Negative","Converted Positive","Persistently Positive"))
+cox_fit <- coxphf(surv_object ~ ctDNA.Dynamics, data=circ_data)
+summary(cox_fit)
+```
+
+
+#Association of ctDNA post-NAC and TRG status
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+
+#Vertical Fisher plot for ctDNA clearance post-NAT and Rec Status
+circ_data <- circ_data[!is.na(circ_data$ctDNA.postnac),]
+circ_data$ctDNA.postnac <- factor(circ_data$ctDNA.postnac, levels=c("NEGATIVE","POSITIVE"))
+circ_data$TRG <- factor(circ_data$TRG, levels = c("1", "2", "3"), labels = c("TRG1", "TRG2", "TRG3"))
+contingency_table <- table(circ_data$TRG, circ_data$ctDNA.postnac)
+fisher_exact_test <- fisher.test(contingency_table)
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+print(fisher_exact_test)
+print(contingency_table)
+table_df <- as.data.frame(contingency_table)
+table_df$Total <- ave(table_df$Freq, table_df$Var1, FUN = sum)
+table_df$Percentage <- table_df$Freq / table_df$Total
+table_df$MiddlePercentage <- table_df$Percentage / 2
+
+# Swapping x and y in ggplot function to make bar plot vertical
+ggplot(table_df, aes(y = Var1, x = Percentage, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(x = MiddlePercentage, label = Freq), position = "stack", color = "black", vjust = 1.5, size = 7) +
+  theme_minimal() +
+  labs(title = "ctDNA post-NAT & TRG", y = "TRG Status", x = "Patients (%)", fill = "ctDNA post-NAC") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("NEGATIVE" = "lightblue3", "POSITIVE" = "red")) + # define custom colors
+  theme(axis.text.y = element_text(angle = 0, hjust = 1.5, size = 14), # increase y-axis text size
+        axis.text.x = element_text(size = 14, color = "black"), # increase x-axis text size
+        axis.title.y = element_text(size = 14, color = "black"), # increase y-axis label size
+        axis.title.x = element_text(size = 14, color = "black"), # increase x-axis label size
+        legend.text = element_text(size = 12, color = "black"))  # increase Recurrence label size
+```
+
+
+#RFS by ctDNA post-NAC and TRG - 3 groups
+```{r}
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.postnac!="",]
+
+circ_data$ctDNA.pCR <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.pCR = case_when(
+    ctDNA.postnac == "NEGATIVE" & TRG %in% c(1, 2) ~ "1",
+    ctDNA.postnac == "NEGATIVE" & TRG == 3 ~ "2",
+    ctDNA.postnac == "POSITIVE" & TRG %in% c(1, 2) ~ "3"
+  ))
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.pCR, data = circ_data)
+circ_data <- circ_data[!is.na(circ_data$ctDNA.pCR),]
+circ_data$ctDNA.pCR <- factor(circ_data$ctDNA.pCR, levels=c("1","2", "3"), labels=c("TRG1/2 ctDNA (-)","TRG3 ctDNA (-)", "TRG1/2 ctDNA (+)"))
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.pCR, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.pCR, data = circ_data,conf.int=0.95,conf.type="log-log")
+summary(KM_curve, times= c(0, 24))
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, 
+           break.time.by=6, palette=c("blue", "green", "red"), title="DFS - ctDNA post-NAC & TRG", ylab= "Recurrence-Free Survival", xlab="Months from Surgery", 
+           legend.labs=c("TRG1/2 ctDNA (-)","TRG3 ctDNA (-)", "TRG1/2 ctDNA (+)"), legend.title="")
+
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.postnac!="",]
+
+circ_data$ctDNA.pCR <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.pCR = case_when(
+    ctDNA.postnac == "NEGATIVE" & TRG %in% c(1, 2) ~ "1",
+    ctDNA.postnac == "NEGATIVE" & TRG == 3 ~ "2",
+    ctDNA.postnac == "POSITIVE" & TRG %in% c(1, 2) ~ "3"
+  ))
+circ_data$ctDNA.pCR <- factor(circ_data$ctDNA.pCR, levels=c("1","2","3"))
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+cox_fit <- coxph(surv_object ~ ctDNA.pCR, data=circ_data)
+summary(cox_fit)
+```
+
+
+#RFS by ctDNA post-NAC and pCR - 3 groups
+```{r}
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.4w!="",]
+circ_data$RFS.months=circ_data$RFS.months-1
+circ_data <- circ_data[circ_data$RFS.months>=0,]
+
+circ_data$ctDNA.pCR <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.pCR = case_when(
+    ctDNA.postnac == "NEGATIVE" & pCR == "TRUE" ~ "1",
+    ctDNA.postnac == "NEGATIVE" & pCR == "FALSE" ~ "2",
+    ctDNA.postnac == "POSITIVE" & pCR == "FALSE" ~ "3",
+  ))
+
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.pCR, data = circ_data)
+circ_data <- circ_data[!is.na(circ_data$ctDNA.pCR),]
+circ_data$ctDNA.pCR <- factor(circ_data$ctDNA.pCR, levels=c("1","2", "3"), labels=c("pCR ctDNA (-)","No pCR ctDNA (-)", "No pCR ctDNA (+)"))
+survfit(Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)~ctDNA.pCR, data = circ_data)
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+KM_curve <- survfit(surv_object ~ ctDNA.pCR, data = circ_data,conf.int=0.95,conf.type="log-log")
+summary(KM_curve, times= c(0, 24))
+ggsurvplot(KM_curve, data = circ_data, pval = FALSE, conf.int = FALSE, risk.table = TRUE, 
+           break.time.by=6, palette=c("blue", "green", "red"), title="DFS - ctDNA post-NAC & pCR", ylab= "Recurrence-Free Survival", xlab="Time (Months)", 
+           legend.labs=c("pCR ctDNA (-)","No pCR ctDNA (-)", "No pCR ctDNA (+)"), legend.title="")
+
+rm(list=ls())
+setwd("~/Downloads")
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.4w!="",]
+circ_data$RFS.months=circ_data$RFS.months-1
+circ_data <- circ_data[circ_data$RFS.months>=0,]
+
+circ_data$ctDNA.pCR <- NA
+circ_data <- circ_data %>%
+  mutate(ctDNA.pCR = case_when(
+    ctDNA.postnac == "NEGATIVE" & pCR == "TRUE" ~ "1",
+    ctDNA.postnac == "NEGATIVE" & pCR == "FALSE" ~ "2",
+    ctDNA.postnac == "POSITIVE" & pCR == "FALSE" ~ "3",
+  ))
+circ_data$ctDNA.pCR <- factor(circ_data$ctDNA.pCR, levels=c("1","2","3"))
+surv_object <-Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event)
+cox_fit <- coxph(surv_object ~ ctDNA.pCR, data=circ_data)
+summary(cox_fit)
+```
+
+
+#Multivariate cox regression for RFS - ctDNA post-NAC
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.postnac!="",]
+circ_datadf <- as.data.frame(circ_data)
+
+circ_data$ctDNA.postnac <- factor(circ_data$ctDNA.postnac, levels=c("NEGATIVE","POSITIVE"), labels = c("Negative", "Positive"))
+circ_data$Age.Group <- factor(circ_data$Age.Group, levels=c("1","2"), labels = c("≤70", ">70"))
+circ_data$Stage <- factor(circ_data$Stage, levels = c("I-II", "III-IV"))
+surv_object <- Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event) 
+cox_fit <- coxph(surv_object ~ ctDNA.postnac + Age.Group + Stage, data=circ_data) 
+ggforest(cox_fit, data = circ_data, main = "Multivariate Regression Model for RFS", refLabel = "Reference Group")
+test.ph <- cox.zph(cox_fit)
+```
+
+
+#Multivariate cox regression for RFS - ctDNA week 4
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.4w!="",]
+
+circ_data$ctDNA.4w <- factor(circ_data$ctDNA.4w, levels=c("NEGATIVE","POSITIVE"), labels = c("Negative", "Positive"))
+circ_data$Age.Group <- factor(circ_data$Age.Group, levels=c("1","2"), labels = c("≤70", ">70"))
+circ_data$Stage <- factor(circ_data$Stage, levels = c("I-II", "III-IV"))
+surv_object <- Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event) 
+cox_fit <- coxph(surv_object ~ ctDNA.4w + Age.Group + Stage, data=circ_data) 
+ggforest(cox_fit, data = circ_data, main = "Multivariate Regression Model for RFS", refLabel = "Reference Group")
+test.ph <- cox.zph(cox_fit)
+```
+
+
+#Multivariate cox regression for RFS - ctDNA MRD Window
+```{r}
+rm(list=ls())
+setwd("~/Downloads") 
+circ_data <- read.csv("NCC ESCC Clinical Data.csv")
+circ_data <- circ_data[circ_data$ctDNA.MRD!="",]
+
+circ_data$ctDNA.MRD <- factor(circ_data$ctDNA.MRD, levels=c("NEGATIVE","POSITIVE"), labels = c("Negative", "Positive"))
+circ_data$Age.Group <- factor(circ_data$Age.Group, levels=c("1","2"), labels = c("≤70", ">70"))
+circ_data$Stage <- factor(circ_data$Stage, levels = c("I-II", "III-IV"))
+surv_object <- Surv(time = circ_data$RFS.months, event = circ_data$RFS.Event) 
+cox_fit <- coxph(surv_object ~ ctDNA.MRD + Age.Group + Stage, data=circ_data) 
+ggforest(cox_fit, data = circ_data, main = "Multivariate Regression Model for RFS", refLabel = "Reference Group")
+test.ph <- cox.zph(cox_fit)
+```
+
